@@ -1,31 +1,10 @@
-const BM25Vectorizer = require('wink-nlp/utilities/bm25-vectorizer');
-const model = require('wink-eng-lite-web-model');
-const nlp = require('wink-nlp' )(model);
+import neo4j, { Driver } from "neo4j-driver";
+import { EmbedderFactory, LLMFactory } from "../utils/factory";
+import { MemoryConfig } from "../types";
 
-interface Config {
-  graph_store: {
-    config: {
-      url: string;
-      username: string;
-      password: string;
-    };
-    llm?: {
-      provider: string;
-    };
-    custom_prompt?: string;
-  };
-  embedder: {
-    provider: string;
-    config: {
-      embedding_dims: number;
-      [key: string]: any;
-    };
-  };
-  llm: {
-    provider: string;
-    config: any;
-  };
-}
+const BM25Vectorizer = require("wink-nlp/utilities/bm25-vectorizer");
+const model = require("wink-eng-lite-web-model");
+const nlp = require("wink-nlp")(model);
 
 interface Filters {
   user_id: string;
@@ -44,11 +23,11 @@ interface Entity {
 
 interface SearchResult {
   source: string;
-  source_id?: number;
+  source_id?: string;
   relationship: string;
-  relation_id?: number;
+  relation_id?: string;
   destination: string;
-  destination_id?: number;
+  destination_id?: string;
   target?: string;
   similarity?: number;
 }
@@ -87,22 +66,22 @@ export const EXTRACT_ENTITIES_TOOL = {
           properties: {
             entity: {
               type: "string",
-              description: "The entity name"
+              description: "The entity name",
             },
             entity_type: {
               type: "string",
-              description: "The type of the entity (e.g., person, organization, location, etc.)"
-            }
+              description:
+                "The type of the entity (e.g., person, organization, location, etc.)",
+            },
           },
-          required: ["entity", "entity_type"]
-        }
-      }
+          required: ["entity", "entity_type"],
+        },
+      },
     },
-    required: ["entities"]
-  }
+    required: ["entities"],
+  },
 };
 
-// Structured tool format (for OpenAI structured output / Azure OpenAI structured)
 export const EXTRACT_ENTITIES_STRUCT_TOOL = {
   type: "function",
   function: {
@@ -119,20 +98,21 @@ export const EXTRACT_ENTITIES_STRUCT_TOOL = {
             properties: {
               entity: {
                 type: "string",
-                description: "The entity name"
+                description: "The entity name",
               },
               entity_type: {
                 type: "string",
-                description: "The type of the entity (e.g., person, organization, location, etc.)"
-              }
+                description:
+                  "The type of the entity (e.g., person, organization, location, etc.)",
+              },
             },
-            required: ["entity", "entity_type"]
-          }
-        }
+            required: ["entity", "entity_type"],
+          },
+        },
       },
-      required: ["entities"]
-    }
-  }
+      required: ["entities"],
+    },
+  },
 };
 
 export const RELATIONS_TOOL = {
@@ -149,23 +129,24 @@ export const RELATIONS_TOOL = {
           properties: {
             source: {
               type: "string",
-              description: "The source entity in the relationship"
+              description: "The source entity in the relationship",
             },
             relationship: {
               type: "string",
-              description: "The type of relationship between source and destination"
+              description:
+                "The type of relationship between source and destination",
             },
             destination: {
               type: "string",
-              description: "The destination entity in the relationship"
-            }
+              description: "The destination entity in the relationship",
+            },
           },
-          required: ["source", "relationship", "destination"]
-        }
-      }
+          required: ["source", "relationship", "destination"],
+        },
+      },
     },
-    required: ["entities"]
-  }
+    required: ["entities"],
+  },
 };
 
 export const RELATIONS_STRUCT_TOOL = {
@@ -184,24 +165,25 @@ export const RELATIONS_STRUCT_TOOL = {
             properties: {
               source: {
                 type: "string",
-                description: "The source entity in the relationship"
+                description: "The source entity in the relationship",
               },
               relationship: {
                 type: "string",
-                description: "The type of relationship between source and destination"
+                description:
+                  "The type of relationship between source and destination",
               },
               destination: {
                 type: "string",
-                description: "The destination entity in the relationship"
-              }
+                description: "The destination entity in the relationship",
+              },
             },
-            required: ["source", "relationship", "destination"]
-          }
-        }
+            required: ["source", "relationship", "destination"],
+          },
+        },
       },
-      required: ["entities"]
-    }
-  }
+      required: ["entities"],
+    },
+  },
 };
 
 export const DELETE_MEMORY_TOOL_GRAPH = {
@@ -212,19 +194,19 @@ export const DELETE_MEMORY_TOOL_GRAPH = {
     properties: {
       source: {
         type: "string",
-        description: "The source entity of the relationship to delete"
+        description: "The source entity of the relationship to delete",
       },
       relationship: {
         type: "string",
-        description: "The type of relationship to delete"
+        description: "The type of relationship to delete",
       },
       destination: {
         type: "string",
-        description: "The destination entity of the relationship to delete"
-      }
+        description: "The destination entity of the relationship to delete",
+      },
     },
-    required: ["source", "relationship", "destination"]
-  }
+    required: ["source", "relationship", "destination"],
+  },
 };
 
 export const DELETE_MEMORY_STRUCT_TOOL_GRAPH = {
@@ -237,23 +219,22 @@ export const DELETE_MEMORY_STRUCT_TOOL_GRAPH = {
       properties: {
         source: {
           type: "string",
-          description: "The source entity of the relationship to delete"
+          description: "The source entity of the relationship to delete",
         },
         relationship: {
           type: "string",
-          description: "The type of relationship to delete"
+          description: "The type of relationship to delete",
         },
         destination: {
           type: "string",
-          description: "The destination entity of the relationship to delete"
-        }
+          description: "The destination entity of the relationship to delete",
+        },
       },
-      required: ["source", "relationship", "destination"]
-    }
-  }
+      required: ["source", "relationship", "destination"],
+    },
+  },
 };
 
-// Utility functions (these would be imported from utils modules)
 const EXTRACT_RELATIONS_PROMPT = `
   You are a smart assistant who understands relationships between entities.
   Extract relationships from the given text.
@@ -262,109 +243,96 @@ const EXTRACT_RELATIONS_PROMPT = `
 `;
 
 function formatEntities(searchOutput: SearchResult[]): string {
-  // Implementation to format entities as string
-  return searchOutput.map(item => 
-    `${item.source} -[${item.relationship}]-> ${item.destination}`
-  ).join('\n');
+  return searchOutput
+    .map(
+      (item) => `${item.source} -[${item.relationship}]-> ${item.destination}`,
+    )
+    .join("\n");
 }
 
-function getDeleteMessages(searchOutputString: string, data: string, userId: string): [string, string] {
-  // Implementation to generate system and user prompts for deletion
+function getDeleteMessages(
+  searchOutputString: string,
+  data: string,
+  userId: string,
+): [string, string] {
   const systemPrompt = `You are an assistant that identifies outdated relationships to delete.`;
   const userPrompt = `Current relationships:\n${searchOutputString}\n\nNew data: ${data}\n\nUser ID: ${userId}`;
   return [systemPrompt, userPrompt];
 }
 
-// Mock implementations for external dependencies
-class Memgraph {
-  constructor(url: string, username: string, password: string) {
-    // Initialize connection
-  }
-
-  async query(cypher: string, params: any = {}): Promise<any[]> {
-    // Execute Cypher query
-    return [];
-  }
-}
-
-class EmbedderFactory {
-  static create(provider: string, config: any, options: any): any {
-    return {
-      embed: async (text: string): Promise<number[]> => {
-        // Return embedding vector
-        return [];
-      }
-    };
-  }
-}
-
-class LlmFactory {
-  static create(provider: string, config: any): any {
-    return {
-      generateResponse: async (params: { messages: any[], tools: any[] }): Promise<LLMResponse> => {
-        // Generate LLM response
-        return { tool_calls: [] };
-      }
-    };
-  }
-}
-
-class MemoryGraph {
-  private config: Config;
-  private graph: Memgraph;
+export class MemoryGraph {
+  private config: MemoryConfig;
+  private graph: Driver;
   private embeddingModel: any;
   private llmProvider: string;
   private llm: any;
-  private userId: string | null = null;
   private threshold: number = 0.7;
 
-  constructor(config: Config) {
+  constructor(config: MemoryConfig) {
     this.config = config;
-    this.graph = new Memgraph(
-      this.config.graph_store.config.url,
-      this.config.graph_store.config.username,
-      this.config.graph_store.config.password
+    if (
+      !config.graphStore?.config?.url ||
+      !config.graphStore?.config?.username ||
+      !config.graphStore?.config?.password
+    ) {
+      throw new Error("Neo4j configuration is incomplete");
+    }
+
+    this.graph = neo4j.driver(
+      config.graphStore.config.url,
+      neo4j.auth.basic(
+        config.graphStore.config.username,
+        config.graphStore.config.password,
+      ),
     );
 
     this.embeddingModel = EmbedderFactory.create(
       this.config.embedder.provider,
       this.config.embedder.config,
-      { enableEmbeddings: true }
     );
 
     this.llmProvider = "openai_structured";
     if (this.config.llm.provider) {
       this.llmProvider = this.config.llm.provider;
     }
-    if (this.config.graph_store.llm) {
-      this.llmProvider = this.config.graph_store.llm.provider;
+    if (this.config.graphStore?.llm && this.config.graphStore.llm.provider) {
+      this.llmProvider = this.config.graphStore.llm.provider;
     }
 
-    this.llm = LlmFactory.create(this.llmProvider, this.config.llm.config);
+    this.llm = LLMFactory.create(this.llmProvider, this.config.llm.config);
 
-    // Setup Memgraph indices
     this.setupMemgraph();
   }
 
   private async setupMemgraph(): Promise<void> {
-    const embeddingDims = this.config.embedder.config.embedding_dims;
-    
-    // Create vector index
-    const createVectorIndexQuery = `CREATE VECTOR INDEX memzero ON :Entity(embedding) WITH CONFIG {'dimension': ${embeddingDims}, 'capacity': 1000, 'metric': 'cos'};`;
-    await this.graph.query(createVectorIndexQuery);
-    
-    // Create label property index
-    const createLabelPropIndexQuery = `CREATE INDEX ON :Entity(user_id);`;
-    await this.graph.query(createLabelPropIndexQuery);
-    
-    // Create label index
-    const createLabelIndexQuery = `CREATE INDEX ON :Entity;`;
-    await this.graph.query(createLabelIndexQuery);
+    if (!this.config.embedder.config.dimension) {
+      throw new Error("'dimension' required in 'embedder' config for memgraph");
+    }
+
+    const embeddingDims = this.config.embedder.config.dimension;
+    const queries = [
+      `CREATE VECTOR INDEX memzero ON :Entity(embedding) WITH CONFIG {'dimension': ${embeddingDims}, 'capacity': 1000, 'metric': 'cos'};`,
+      `CREATE INDEX ON :Entity(user_id);`,
+      `CREATE INDEX ON :Entity;`,
+    ];
+
+    const session = this.graph.session();
+    try {
+      for (const q of queries) {
+        await session.run(q);
+      }
+    } finally {
+      await session.close();
+    }
   }
 
   async add(data: string, filters: Filters): Promise<AddResult> {
     const entityTypeMap = await this.retrieveNodesFromData(data, filters);
-    const toBeAdded = await this.establishNodesRelationsFromData(data, filters, entityTypeMap);
+    const toBeAdded = await this.establishNodesRelationsFromData(
+      data,
+      filters,
+      entityTypeMap,
+    );
     const searchOutput = await this.searchGraphDb(
       Object.keys(entityTypeMap),
       filters,
@@ -372,14 +340,17 @@ class MemoryGraph {
     const toBeDeleted = await this.getDeleteEntitiesFromSearchOutput(
       searchOutput,
       data,
-      filters
+      filters,
     );
 
-    const deletedEntities = await this.deleteEntities(toBeDeleted, filters.user_id);
+    const deletedEntities = await this.deleteEntities(
+      toBeDeleted,
+      filters.user_id,
+    );
     const addedEntities = await this.addEntities(
       toBeAdded,
       filters.user_id,
-      entityTypeMap
+      entityTypeMap,
     );
 
     return { deleted_entities: deletedEntities, added_entities: addedEntities };
@@ -389,243 +360,241 @@ class MemoryGraph {
     const entityTypeMap = await this.retrieveNodesFromData(query, filters);
     const searchOutput = await this.searchGraphDb(
       Object.keys(entityTypeMap),
-      filters
+      filters,
     );
 
     if (!searchOutput.length) {
       return [];
     }
 
-    // Prepare documents for BM25 ranking
-    const documents = searchOutput.map(item => 
-      `${item.source} ${item.relationship} ${item.destination}`
+    const documents = searchOutput.map(
+      (item) => `${item.source} ${item.relationship} ${item.destination}`,
     );
 
-    const bm25 = BM25Vectorizer() as any;
-    documents.forEach(doc => {
+    const bm25 = BM25Vectorizer();
+    documents.forEach((doc: string) => {
       bm25.learn(nlp.readDoc(doc).tokens().out());
     });
     bm25.consolidate();
-    
+
     const queryTokens = nlp.readDoc(query).tokens().out();
     const scores = documents.map((_, index) => ({
       index,
-      score: bm25.scoreOf(queryTokens, index)
+      score: bm25.scoreOf(queryTokens, index),
     }));
-    
+
     const topResults = scores
       .sort((a, b) => b.score - a.score)
       .slice(0, 5)
-      .map(result => searchOutput[result.index]);
+      .map((r) => searchOutput[r.index]);
 
-    const searchResults: SearchResult[] = topResults.map(item => ({
+    const searchResults: SearchResult[] = topResults.map((item) => ({
       source: item.source,
       relationship: item.relationship,
-      destination: item.destination
+      destination: item.destination,
     }));
 
-    console.log(`Returned ${searchResults.length} search results`);
     return searchResults;
   }
 
   async deleteAll(filters: Filters): Promise<void> {
-    const cypher = `
-      MATCH (n {user_id: $user_id})
-      DETACH DELETE n
-    `;
-    const params = { user_id: filters.user_id };
-    await this.graph.query(cypher, params);
+    const session = this.graph.session();
+    try {
+      await session.run(
+        `MATCH (n {user_id: $user_id}) DETACH DELETE n`,
+        { user_id: filters.user_id },
+      );
+    } finally {
+      await session.close();
+    }
   }
 
   async getAll(filters: Filters, limit: number = 100): Promise<SearchResult[]> {
-    const query = `
-      MATCH (n:Entity {user_id: $user_id})-[r]->(m:Entity {user_id: $user_id})
-      RETURN n.name AS source, type(r) AS relationship, m.name AS target
-      LIMIT $limit
-    `;
-    const results = await this.graph.query(query, {
-      user_id: filters.user_id,
-      limit: limit
-    });
+    const session = this.graph.session();
+    try {
+      const result = await session.run(
+        `MATCH (n:Entity {user_id: $user_id})-[r]->(m:Entity {user_id: $user_id}) RETURN n.name AS source, type(r) AS relationship, m.name AS target LIMIT toInteger($limit)`,
+        { user_id: filters.user_id, limit: Math.floor(Number(limit)) },
+      );
 
-    const finalResults: SearchResult[] = results.map(result => ({
-      source: result.source,
-      relationship: result.relationship,
-      target: result.target,
-      destination: result.target
-    }));
+      const finalResults: SearchResult[] = result.records.map((record) => ({
+        source: record.get("source"),
+        relationship: record.get("relationship"),
+        target: record.get("target"),
+        destination: record.get("target"),
+      }));
 
-    console.log(`Retrieved ${finalResults.length} relationships`);
-    return finalResults;
+      return finalResults;
+    } finally {
+      await session.close();
+    }
   }
 
   private async retrieveNodesFromData(data: string, filters: Filters): Promise<EntityTypeMap> {
-    const tools = this.llmProvider in ["azure_openai_structured", "openai_structured"]
-      ? [EXTRACT_ENTITIES_STRUCT_TOOL]
-      : [EXTRACT_ENTITIES_TOOL];
+    const tools =
+      this.llmProvider === "azure_openai_structured" || this.llmProvider === "openai_structured"
+        ? [EXTRACT_ENTITIES_STRUCT_TOOL]
+        : [EXTRACT_ENTITIES_TOOL];
 
-    const searchResults = await this.llm.generateResponse({
+    const searchResults: LLMResponse = await this.llm.generateResponse({
       messages: [
         {
           role: "system",
-          content: `You are a smart assistant who understands entities and their types in a given text. If user message contains self reference such as 'I', 'me', 'my' etc. then use ${filters.user_id} as the source entity. Extract all the entities from the text. ***DO NOT*** answer the question itself if the given text is a question.`
+          content: `You are a smart assistant who understands entities and their types in a given text. If user message contains self reference such as 'I', 'me', 'my' etc. then use ${filters.user_id} as the source entity. Extract all the entities from the text. ***DO NOT*** answer the question itself if the given text is a question.`,
         },
-        {
-          role: "user",
-          content: data
-        }
+        { role: "user", content: data },
       ],
-      tools: tools
+      tools,
     });
 
     const entityTypeMap: EntityTypeMap = {};
-
     try {
-      for (const toolCall of searchResults.tool_calls) {
-        if (toolCall.name !== "extract_entities") continue;
-        
-        for (const item of toolCall.arguments.entities) {
+      for (const call of searchResults.tool_calls) {
+        if (call.name !== "extract_entities") continue;
+        for (const item of call.arguments.entities) {
           entityTypeMap[item.entity] = item.entity_type;
         }
       }
-    } catch (error) {
-      console.error(`Error in search tool: ${error}, llm_provider=${this.llmProvider}`);
-    }
+    } catch (_) {}
 
-    // Normalize entity names and types
     const normalizedMap: EntityTypeMap = {};
-    for (const [key, value] of Object.entries(entityTypeMap)) {
-      const normalizedKey = key.toLowerCase().replace(/ /g, "_");
-      const normalizedValue = value.toLowerCase().replace(/ /g, "_");
-      normalizedMap[normalizedKey] = normalizedValue;
+    for (const [k, v] of Object.entries(entityTypeMap)) {
+      normalizedMap[k.toLowerCase().replace(/ /g, "_")] = v
+        .toLowerCase()
+        .replace(/ /g, "_");
     }
-
-    console.debug(`Entity type map: ${JSON.stringify(normalizedMap)}`);
     return normalizedMap;
   }
 
   private async establishNodesRelationsFromData(
     data: string,
     filters: Filters,
-    entityTypeMap: EntityTypeMap
+    entityTypeMap: EntityTypeMap,
   ): Promise<Entity[]> {
     let messages: any[];
-
-    if (this.config.graph_store.custom_prompt) {
+    if (this.config.graphStore?.customPrompt) {
       messages = [
         {
           role: "system",
-          content: EXTRACT_RELATIONS_PROMPT
-            .replace("USER_ID", filters.user_id)
-            .replace("CUSTOM_PROMPT", `4. ${this.config.graph_store.custom_prompt}`)
+          content: EXTRACT_RELATIONS_PROMPT.replace("USER_ID", filters.user_id).replace(
+            "CUSTOM_PROMPT",
+            `4. ${this.config.graphStore.customPrompt}`,
+          ),
         },
-        {
-          role: "user",
-          content: data
-        }
+        { role: "user", content: data },
       ];
     } else {
       messages = [
         {
           role: "system",
-          content: EXTRACT_RELATIONS_PROMPT.replace("USER_ID", filters.user_id)
+          content: EXTRACT_RELATIONS_PROMPT.replace("USER_ID", filters.user_id),
         },
         {
           role: "user",
-          content: `List of entities: ${Object.keys(entityTypeMap)}. \n\nText: ${data}`
-        }
+          content: `List of entities: ${Object.keys(entityTypeMap)}. \n\nText: ${data}`,
+        },
       ];
     }
 
-    const tools = this.llmProvider in ["azure_openai_structured", "openai_structured"]
-      ? [RELATIONS_STRUCT_TOOL]
-      : [RELATIONS_TOOL];
+    const tools =
+      this.llmProvider === "azure_openai_structured" || this.llmProvider === "openai_structured"
+        ? [RELATIONS_STRUCT_TOOL]
+        : [RELATIONS_TOOL];
 
-    const extractedEntities = await this.llm.generateResponse({
-      messages: messages,
-      tools: tools
+    const extractedEntities: LLMResponse = await this.llm.generateResponse({
+      messages,
+      tools,
     });
 
     let entities: Entity[] = [];
-    if (extractedEntities.tool_calls.length > 0) {
+    if (extractedEntities.tool_calls.length) {
       entities = extractedEntities.tool_calls[0].arguments.entities;
     }
 
     entities = this.removeSpacesFromEntities(entities);
-    console.debug(`Extracted entities: ${JSON.stringify(entities)}`);
     return entities;
   }
 
   private async searchGraphDb(
     nodeList: string[],
     filters: Filters,
-    limit: number = 100
+    limit: number = 100,
   ): Promise<SearchResult[]> {
     const resultRelations: SearchResult[] = [];
+    const session = this.graph.session();
+    try {
+      for (const node of nodeList) {
+        const nEmbedding = await this.embeddingModel.embed(node);
+        const cypherQuery = `
+          MATCH (n:Entity {user_id: $user_id})-[r]->(m:Entity)
+          WHERE n.embedding IS NOT NULL
+          WITH collect(n) AS nodes1, collect(m) AS nodes2, r
+          CALL node_similarity.cosine_pairwise("embedding", nodes1, nodes2)
+          YIELD node1, node2, similarity
+          WITH node1, node2, similarity, r
+          WHERE similarity >= $threshold
+          RETURN node1.name AS source, id(node1) AS source_id, type(r) AS relationship, id(r) AS relation_id, node2.name AS destination, id(node2) AS destination_id, similarity
+          UNION
+          MATCH (n:Entity {user_id: $user_id})<-[r]-(m:Entity)
+          WHERE n.embedding IS NOT NULL
+          WITH collect(n) AS nodes1, collect(m) AS nodes2, r
+          CALL node_similarity.cosine_pairwise("embedding", nodes1, nodes2)
+          YIELD node1, node2, similarity
+          WITH node1, node2, similarity, r
+          WHERE similarity >= $threshold
+          RETURN node2.name AS source, id(node2) AS source_id, type(r) AS relationship, id(r) AS relation_id, node1.name AS destination, id(node1) AS destination_id, similarity
+          ORDER BY similarity DESC
+          LIMIT toInteger($limit)
+        `;
 
-    for (const node of nodeList) {
-      const nEmbedding = await this.embeddingModel.embed(node);
+        const result = await session.run(cypherQuery, {
+          n_embedding: nEmbedding,
+          threshold: this.threshold,
+          user_id: filters.user_id,
+          limit: Math.floor(Number(limit)),
+        });
 
-      const cypherQuery = `
-        MATCH (n:Entity {user_id: $user_id})-[r]->(m:Entity)
-        WHERE n.embedding IS NOT NULL
-        WITH collect(n) AS nodes1, collect(m) AS nodes2, r
-        CALL node_similarity.cosine_pairwise("embedding", nodes1, nodes2)
-        YIELD node1, node2, similarity
-        WITH node1, node2, similarity, r
-        WHERE similarity >= $threshold
-        RETURN node1.user_id AS source, id(node1) AS source_id, type(r) AS relationship, 
-               id(r) AS relation_id, node2.user_id AS destination, id(node2) AS destination_id, similarity
-        UNION
-        MATCH (n:Entity {user_id: $user_id})<-[r]-(m:Entity)
-        WHERE n.embedding IS NOT NULL
-        WITH collect(n) AS nodes1, collect(m) AS nodes2, r
-        CALL node_similarity.cosine_pairwise("embedding", nodes1, nodes2)
-        YIELD node1, node2, similarity
-        WITH node1, node2, similarity, r
-        WHERE similarity >= $threshold
-        RETURN node2.name AS source, id(node2) AS source_id, type(r) AS relationship, 
-               id(r) AS relation_id, node1.name AS destination, id(node1) AS destination_id, similarity
-        ORDER BY similarity DESC
-        LIMIT $limit;
-      `;
-
-      const params = {
-        n_embedding: nEmbedding,
-        threshold: this.threshold,
-        user_id: filters.user_id,
-        limit: limit
-      };
-
-      const ans = await this.graph.query(cypherQuery, params);
-      resultRelations.push(...ans);
+        resultRelations.push(
+          ...result.records.map((record) => ({
+            source: record.get("source"),
+            source_id: record.get("source_id").toString(),
+            relationship: record.get("relationship"),
+            relation_id: record.get("relation_id").toString(),
+            destination: record.get("destination"),
+            destination_id: record.get("destination_id").toString(),
+            similarity: record.get("similarity"),
+          })),
+        );
+      }
+    } finally {
+      await session.close();
     }
-
     return resultRelations;
   }
 
   private async getDeleteEntitiesFromSearchOutput(
     searchOutput: SearchResult[],
     data: string,
-    filters: Filters
+    filters: Filters,
   ): Promise<Entity[]> {
     const searchOutputString = formatEntities(searchOutput);
     const [systemPrompt, userPrompt] = getDeleteMessages(
       searchOutputString,
       data,
-      filters.user_id
+      filters.user_id,
     );
 
-    const tools = this.llmProvider in ["azure_openai_structured", "openai_structured"]
-      ? [DELETE_MEMORY_STRUCT_TOOL_GRAPH]
-      : [DELETE_MEMORY_TOOL_GRAPH];
+    const tools =
+      this.llmProvider === "azure_openai_structured" || this.llmProvider === "openai_structured"
+        ? [DELETE_MEMORY_STRUCT_TOOL_GRAPH]
+        : [DELETE_MEMORY_TOOL_GRAPH];
 
-    const memoryUpdates = await this.llm.generateResponse({
+    const memoryUpdates: LLMResponse = await this.llm.generateResponse({
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
+        { role: "user", content: userPrompt },
       ],
-      tools: tools
+      tools,
     });
 
     const toBeDeleted: Entity[] = [];
@@ -635,212 +604,200 @@ class MemoryGraph {
       }
     }
 
-    const normalizedDeleted = this.removeSpacesFromEntities(toBeDeleted);
-    console.debug(`Deleted relationships: ${JSON.stringify(normalizedDeleted)}`);
-    return normalizedDeleted;
+    return this.removeSpacesFromEntities(toBeDeleted);
   }
 
-  private async deleteEntities(toBeDeleted: Entity[], userId: string): Promise<DeleteResult[]> {
+  private async deleteEntities(
+    toBeDeleted: Entity[],
+    userId: string,
+  ): Promise<DeleteResult[]> {
     const results: DeleteResult[] = [];
-
-    for (const item of toBeDeleted) {
-      const { source, destination, relationship } = item;
-
-      const cypher = `
-        MATCH (n:Entity {name: $source_name, user_id: $user_id})
-        -[r:${relationship}]->
-        (m {name: $dest_name, user_id: $user_id})
-        DELETE r
-        RETURN 
-          n.name AS source,
-          m.name AS target,
-          type(r) AS relationship
-      `;
-
-      const params = {
-        source_name: source,
-        dest_name: destination,
-        user_id: userId
-      };
-
-      const result = await this.graph.query(cypher, params);
-      results.push(...result);
+    const session = this.graph.session();
+    try {
+      for (const item of toBeDeleted) {
+        const cypher = `
+          MATCH (n:Entity {name: $source_name, user_id: $user_id})-[r:${item.relationship}]->(m:Entity {name: $dest_name, user_id: $user_id})
+          DELETE r
+          RETURN n.name AS source, m.name AS target, type(r) AS relationship
+        `;
+        const res = await session.run(cypher, {
+          source_name: item.source,
+          dest_name: item.destination,
+          user_id: userId,
+        });
+        results.push(
+          ...res.records.map((rec) => ({
+            source: rec.get("source"),
+            target: rec.get("target"),
+            relationship: rec.get("relationship"),
+          })),
+        );
+      }
+    } finally {
+      await session.close();
     }
-
     return results;
   }
 
   private async addEntities(
     toBeAdded: Entity[],
     userId: string,
-    entityTypeMap: EntityTypeMap
+    entityTypeMap: EntityTypeMap,
   ): Promise<any[]> {
     const results: any[] = [];
+    const session = this.graph.session();
+    try {
+      for (const item of toBeAdded) {
+        const sourceType = entityTypeMap[item.source] || "unknown";
+        const destinationType = entityTypeMap[item.destination] || "unknown";
+        const sourceEmbedding = await this.embeddingModel.embed(item.source);
+        const destEmbedding = await this.embeddingModel.embed(item.destination);
+        const sourceNodeSearchResult = await this.searchSourceNode(
+          sourceEmbedding,
+          userId,
+          0.9,
+        );
+        const destinationNodeSearchResult = await this.searchDestinationNode(
+          destEmbedding,
+          userId,
+          0.9,
+        );
 
-    for (const item of toBeAdded) {
-      const { source, destination, relationship } = item;
-      
-      // Get entity types
-      const sourceType = entityTypeMap[source] || "unknown";
-      const destinationType = entityTypeMap[destination] || "unknown";
+        let cypher: string;
+        let params: any;
 
-      // Generate embeddings
-      const sourceEmbedding = await this.embeddingModel.embed(source);
-      const destEmbedding = await this.embeddingModel.embed(destination);
+        if (!destinationNodeSearchResult.length && sourceNodeSearchResult.length) {
+          cypher = `
+            MATCH (source:Entity) WHERE id(source) = $source_id
+            MERGE (destination:${destinationType}:Entity {name: $destination_name, user_id: $user_id})
+            ON CREATE SET destination.created = timestamp(), destination.embedding = $destination_embedding
+            MERGE (source)-[r:${item.relationship}]->(destination)
+            ON CREATE SET r.created = timestamp()
+            RETURN source.name AS source, type(r) AS relationship, destination.name AS target
+          `;
+          params = {
+            source_id: Number(sourceNodeSearchResult[0]["id(source_candidate)"]),
+            destination_name: item.destination,
+            destination_embedding: destEmbedding,
+            user_id: userId,
+          };
+        } else if (destinationNodeSearchResult.length && !sourceNodeSearchResult.length) {
+          cypher = `
+            MATCH (destination:Entity) WHERE id(destination) = $destination_id
+            MERGE (source:${sourceType}:Entity {name: $source_name, user_id: $user_id})
+            ON CREATE SET source.created = timestamp(), source.embedding = $source_embedding
+            MERGE (source)-[r:${item.relationship}]->(destination)
+            ON CREATE SET r.created = timestamp()
+            RETURN source.name AS source, type(r) AS relationship, destination.name AS target
+          `;
+          params = {
+            destination_id: Number(destinationNodeSearchResult[0]["id(destination_candidate)"]),
+            source_name: item.source,
+            source_embedding: sourceEmbedding,
+            user_id: userId,
+          };
+        } else if (sourceNodeSearchResult.length && destinationNodeSearchResult.length) {
+          cypher = `
+            MATCH (source:Entity) WHERE id(source) = $source_id
+            MATCH (destination:Entity) WHERE id(destination) = $destination_id
+            MERGE (source)-[r:${item.relationship}]->(destination)
+            ON CREATE SET r.created_at = timestamp(), r.updated_at = timestamp()
+            RETURN source.name AS source, type(r) AS relationship, destination.name AS target
+          `;
+          params = {
+            source_id: Number(sourceNodeSearchResult[0]["id(source_candidate)"]),
+            destination_id: Number(destinationNodeSearchResult[0]["id(destination_candidate)"]),
+            user_id: userId,
+          };
+        } else {
+          cypher = `
+            MERGE (n:${sourceType}:Entity {name: $source_name, user_id: $user_id})
+            ON CREATE SET n.created = timestamp(), n.embedding = $source_embedding
+            ON MATCH SET n.embedding = $source_embedding
+            MERGE (m:${destinationType}:Entity {name: $dest_name, user_id: $user_id})
+            ON CREATE SET m.created = timestamp(), m.embedding = $dest_embedding
+            ON MATCH SET m.embedding = $dest_embedding
+            MERGE (n)-[rel:${item.relationship}]->(m)
+            ON CREATE SET rel.created = timestamp()
+            RETURN n.name AS source, type(rel) AS relationship, m.name AS target
+          `;
+          params = {
+            source_name: item.source,
+            dest_name: item.destination,
+            source_embedding: sourceEmbedding,
+            dest_embedding: destEmbedding,
+            user_id: userId,
+          };
+        }
 
-      // Search for existing nodes
-      const sourceNodeSearchResult = await this.searchSourceNode(
-        sourceEmbedding,
-        userId,
-        0.9
-      );
-      const destinationNodeSearchResult = await this.searchDestinationNode(
-        destEmbedding,
-        userId,
-        0.9
-      );
-
-      let cypher: string;
-      let params: any;
-
-      if (!destinationNodeSearchResult.length && sourceNodeSearchResult.length) {
-        cypher = `
-          MATCH (source:Entity)
-          WHERE id(source) = $source_id
-          MERGE (destination:${destinationType}:Entity {name: $destination_name, user_id: $user_id})
-          ON CREATE SET
-            destination.created = timestamp(),
-            destination.embedding = $destination_embedding,
-            destination:Entity
-          MERGE (source)-[r:${relationship}]->(destination)
-          ON CREATE SET 
-            r.created = timestamp()
-          RETURN source.name AS source, type(r) AS relationship, destination.name AS target
-        `;
-
-        params = {
-          source_id: sourceNodeSearchResult[0]["id(source_candidate)"],
-          destination_name: destination,
-          destination_embedding: destEmbedding,
-          user_id: userId
-        };
-      } else if (destinationNodeSearchResult.length && !sourceNodeSearchResult.length) {
-        cypher = `
-          MATCH (destination:Entity)
-          WHERE id(destination) = $destination_id
-          MERGE (source:${sourceType}:Entity {name: $source_name, user_id: $user_id})
-          ON CREATE SET
-            source.created = timestamp(),
-            source.embedding = $source_embedding,
-            source:Entity
-          MERGE (source)-[r:${relationship}]->(destination)
-          ON CREATE SET 
-            r.created = timestamp()
-          RETURN source.name AS source, type(r) AS relationship, destination.name AS target
-        `;
-
-        params = {
-          destination_id: destinationNodeSearchResult[0]["id(destination_candidate)"],
-          source_name: source,
-          source_embedding: sourceEmbedding,
-          user_id: userId
-        };
-      } else if (sourceNodeSearchResult.length && destinationNodeSearchResult.length) {
-        cypher = `
-          MATCH (source:Entity)
-          WHERE id(source) = $source_id
-          MATCH (destination:Entity)
-          WHERE id(destination) = $destination_id
-          MERGE (source)-[r:${relationship}]->(destination)
-          ON CREATE SET 
-            r.created_at = timestamp(),
-            r.updated_at = timestamp()
-          RETURN source.name AS source, type(r) AS relationship, destination.name AS target
-        `;
-
-        params = {
-          source_id: sourceNodeSearchResult[0]["id(source_candidate)"],
-          destination_id: destinationNodeSearchResult[0]["id(destination_candidate)"],
-          user_id: userId
-        };
-      } else {
-        cypher = `
-          MERGE (n:${sourceType}:Entity {name: $source_name, user_id: $user_id})
-          ON CREATE SET n.created = timestamp(), n.embedding = $source_embedding, n:Entity
-          ON MATCH SET n.embedding = $source_embedding
-          MERGE (m:${destinationType}:Entity {name: $dest_name, user_id: $user_id})
-          ON CREATE SET m.created = timestamp(), m.embedding = $dest_embedding, m:Entity
-          ON MATCH SET m.embedding = $dest_embedding
-          MERGE (n)-[rel:${relationship}]->(m)
-          ON CREATE SET rel.created = timestamp()
-          RETURN n.name AS source, type(rel) AS relationship, m.name AS target
-        `;
-
-        params = {
-          source_name: source,
-          dest_name: destination,
-          source_embedding: sourceEmbedding,
-          dest_embedding: destEmbedding,
-          user_id: userId
-        };
+        const res = await session.run(cypher, params);
+        results.push(
+          ...res.records.map((rec) => ({
+            source: rec.get("source"),
+            relationship: rec.get("relationship"),
+            target: rec.get("target"),
+          })),
+        );
       }
-
-      const result = await this.graph.query(cypher, params);
-      results.push(...result);
+    } finally {
+      await session.close();
     }
-
     return results;
   }
 
   private removeSpacesFromEntities(entityList: Entity[]): Entity[] {
-    return entityList.map(item => ({
+    return entityList.map((item) => ({
       source: item.source.toLowerCase().replace(/ /g, "_"),
       relationship: item.relationship.toLowerCase().replace(/ /g, "_"),
-      destination: item.destination.toLowerCase().replace(/ /g, "_")
+      destination: item.destination.toLowerCase().replace(/ /g, "_"),
     }));
   }
 
   private async searchSourceNode(
     sourceEmbedding: number[],
     userId: string,
-    threshold: number = 0.9
+    threshold: number = 0.9,
   ): Promise<any[]> {
-    const cypher = `
-      CALL vector_search.search("memzero", 1, $source_embedding) 
-      YIELD distance, node, similarity
-      WITH node AS source_candidate, similarity
-      WHERE source_candidate.user_id = $user_id AND similarity >= $threshold
-      RETURN id(source_candidate);
-    `;
-
-    const params = {
-      source_embedding: sourceEmbedding,
-      user_id: userId,
-      threshold: threshold
-    };
-
-    return await this.graph.query(cypher, params);
+    const session = this.graph.session();
+    try {
+      const cypher = `
+        CALL vector_search.search("memzero", 1, $source_embedding) YIELD distance, node, similarity
+        WITH node AS source_candidate, similarity
+        WHERE source_candidate.user_id = $user_id AND similarity >= $threshold
+        RETURN id(source_candidate) AS id
+      `;
+      const res = await session.run(cypher, {
+        source_embedding: sourceEmbedding,
+        user_id: userId,
+        threshold,
+      });
+      return res.records.map((r) => ({ "id(source_candidate)": r.get("id").toInt() }));
+    } finally {
+      await session.close();
+    }
   }
 
   private async searchDestinationNode(
     destinationEmbedding: number[],
     userId: string,
-    threshold: number = 0.9
+    threshold: number = 0.9,
   ): Promise<any[]> {
-    const cypher = `
-      CALL vector_search.search("memzero", 1, $destination_embedding) 
-      YIELD distance, node, similarity
-      WITH node AS destination_candidate, similarity
-      WHERE node.user_id = $user_id AND similarity >= $threshold
-      RETURN id(destination_candidate);
-    `;
-
-    const params = {
-      destination_embedding: destinationEmbedding,
-      user_id: userId,
-      threshold: threshold
-    };
-
-    return await this.graph.query(cypher, params);
+    const session = this.graph.session();
+    try {
+      const cypher = `
+        CALL vector_search.search("memzero", 1, $destination_embedding) YIELD distance, node, similarity
+        WITH node AS destination_candidate, similarity
+        WHERE destination_candidate.user_id = $user_id AND similarity >= $threshold
+        RETURN id(destination_candidate) AS id
+      `;
+      const res = await session.run(cypher, {
+        destination_embedding: destinationEmbedding,
+        user_id: userId,
+        threshold,
+      });
+      return res.records.map((r) => ({ "id(destination_candidate)": r.get("id").toInt() }));
+    } finally {
+      await session.close();
+    }
   }
 }

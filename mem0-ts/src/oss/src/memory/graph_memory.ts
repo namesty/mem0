@@ -12,6 +12,7 @@ import {
 } from "../graphs/tools";
 import { EXTRACT_RELATIONS_PROMPT, getDeleteMessages } from "../graphs/utils";
 import { logger } from "../utils/logger";
+import { IMemoryGraph } from "./memory.types";
 
 interface SearchOutput {
   source: string;
@@ -47,7 +48,7 @@ interface GraphMemoryResult {
   relations?: any[];
 }
 
-export class MemoryGraph {
+export class MemoryGraph implements IMemoryGraph {
   private config: MemoryConfig;
   private graph: Driver;
   private embeddingModel: Embedder;
@@ -178,7 +179,11 @@ export class MemoryGraph {
     }
   }
 
-  async getAll(filters: Record<string, any>, limit = 100) {
+  async getAll(filters: Record<string, any>, limit = 100): Promise<{
+    source: any;
+    relationship: any;
+    target: any;
+  }[]> {
     const session = this.graph.session();
     try {
       const result = await session.run(

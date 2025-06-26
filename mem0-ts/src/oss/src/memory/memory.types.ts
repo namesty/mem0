@@ -23,3 +23,43 @@ export interface GetAllMemoryOptions extends Entity {
 }
 
 export interface DeleteAllMemoryOptions extends Entity {}
+
+export interface IMemoryGraph {
+  add(
+    data: string,
+    filters: Record<string, any>
+  ): Promise<{
+    deleted_entities: any[];
+    added_entities: any[];
+    relations?: any[];
+  }>;
+
+  search(
+    query: string,
+    filters: Record<string, any>,
+    limit?: number
+  ): Promise<
+    {
+      source: string;
+      relationship: string;
+      destination: string;
+      source_id?: string | number;
+      destination_id?: string | number;
+      relation_id?: string | number;
+      similarity?: number;
+    }[]
+  >;
+
+  deleteAll(filters: Record<string, any>): Promise<void>;
+
+  getAll(
+    filters: Record<string, any>,
+    limit?: number
+  ): Promise<
+    {
+      source: string;
+      relationship: string;
+      destination?: string;
+    }[]
+  >;
+}
