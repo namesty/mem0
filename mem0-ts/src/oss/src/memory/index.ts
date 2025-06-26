@@ -87,12 +87,30 @@ export class Memory {
 
     this.collectionName = this.config.vectorStore.config.collectionName;
     this.apiVersion = this.config.version || "v1.0";
-    this.enableGraph = this.config.enableGraph || false;
+
+    // Enable graph if the caller asked for it OR if a graphStore block is supplied
+    this.enableGraph =
+      typeof this.config.enableGraph === "boolean"
+        ? this.config.enableGraph
+        : !!this.config.graphStore;
+
     this.telemetryId = "anonymous";
 
     // Initialize graph memory if configured
     if (this.enableGraph && this.config.graphStore) {
-      this.graphMemory = new MemoryGraph(this.config);
+      /*
+       * The MemoryGraph implementation (which supports Memgraph) expects
+       * the configuration to expose a `graph_store` key (snake_case, like
+       * the Python version).  If the user passed a camelCase `graphStore`,
+       * create the expected alias on a shallow copy so we keep the diff small
+       * and avoid mutating the original config object.
+       */
+      const graphConfig = {
+        ...this.config,
+        graph_store: (this.config as any).graphStore || (this.config as any).graph_store,
+      } as any;
+
+      this.graphMemory = new MemoryGraph(graphConfig);
     }
 
     // Initialize telemetry if vector store is initialized
@@ -171,7 +189,11 @@ export class Memory {
       infer = true,
     } = config;
 
-    if (userId) filters.userId = metadata.userId = userId;
+    if (userId) {
+      filters.userId = metadata.userId = userId;
+      // memgraph uses snake_case user_id
+      (filters as any).user_id = userId;
+    }
     if (agentId) filters.agentId = metadata.agentId = agentId;
     if (runId) filters.runId = metadata.runId = runId;
 
@@ -201,7 +223,8 @@ export class Memory {
       try {
         graphResult = await this.graphMemory.add(
           final_parsedMessages.map((m) => m.content).join("\n"),
-          filters,
+          // Ensure filter naming expected by MemoryGraph
+          (filters as any).user_id ? (filters as any) : { ...filters, user_id: filters.userId },
         );
       } catch (error) {
         console.error("Error adding to graph memory:", error);
@@ -423,7 +446,10 @@ export class Memory {
     });
     const { userId, agentId, runId, limit = 100, filters = {} } = config;
 
-    if (userId) filters.userId = userId;
+    if (userId) {
+      filters.userId = userId;
+      (filters as any).user_id = userId;
+    }
     if (agentId) filters.agentId = agentId;
     if (runId) filters.runId = runId;
 
@@ -445,7 +471,10 @@ export class Memory {
     let graphResults;
     if (this.graphMemory) {
       try {
-        graphResults = await this.graphMemory.search(query, filters);
+        graphResults = await this.graphMemory.search(
+          query,
+          (filters as any).user_id ? (filters as any) : { ...filters, user_id: filters.userId },
+        );
       } catch (error) {
         console.error("Error searching graph memory:", error);
       }
@@ -505,7 +534,10 @@ export class Memory {
     const { userId, agentId, runId } = config;
 
     const filters: SearchFilters = {};
-    if (userId) filters.userId = userId;
+    if (userId) {
+      filters.userId = userId;
+      (filters as any).user_id = userId;
+    }
     if (agentId) filters.agentId = agentId;
     if (runId) filters.runId = runId;
 
@@ -518,6 +550,15 @@ export class Memory {
     const [memories] = await this.vectorStore.list(filters);
     for (const memory of memories) {
       await this.deleteMemory(memory.id);
+    }
+
+    // Ensure graph is cleaned up as well
+    if (this.graphMemory) {
+      try {
+        await this.graphMemory.deleteAll((filters as any).user_id ? (filters as any) : { ...filters, user_id: filters.userId });
+      } catch (e) {
+        console.error("Failed to delete graph data:", e);
+      }
     }
 
     return { message: "Memories deleted successfully!" };
@@ -540,7 +581,6 @@ export class Memory {
           `Failed to delete collection for provider '${this.config.vectorStore.provider}':`,
           e,
         );
-        // Decide if you want to re-throw or just log
       }
     } else {
       console.warn(
@@ -549,7 +589,11 @@ export class Memory {
     }
 
     if (this.graphMemory) {
-      await this.graphMemory.deleteAll({ userId: "default" }); // Assuming this is okay, or needs similar check?
+      try {
+        await this.graphMemory.deleteAll({ user_id: "default" });
+      } catch (e) {
+        console.error("Failed to clear graph store:", e);
+      }
     }
 
     // Re-initialize factories/clients based on the original config
@@ -557,17 +601,14 @@ export class Memory {
       this.config.embedder.provider,
       this.config.embedder.config,
     );
-    // Re-create vector store instance - crucial for Langchain to reset wrapper state if needed
     this.vectorStore = VectorStoreFactory.create(
       this.config.vectorStore.provider,
-      this.config.vectorStore.config, // This will pass the original client instance back
+      this.config.vectorStore.config,
     );
     this.llm = LLMFactory.create(
       this.config.llm.provider,
       this.config.llm.config,
     );
-    // Re-init DB if needed (though db.reset() likely handles its state)
-    // Re-init Graph if needed
 
     // Re-initialize telemetry
     this._initializeTelemetry();
