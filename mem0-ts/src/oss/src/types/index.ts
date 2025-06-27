@@ -119,6 +119,7 @@ export const MemoryConfigSchema = z.object({
       apiKey: z.string().optional(),
       model: z.union([z.string(), z.any()]).optional(),
       baseURL: z.string().optional(),
+      dimension: z.number().optional()
     }),
   }),
   vectorStore: z.object({

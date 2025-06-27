@@ -3,9 +3,9 @@ import { EmbedderFactory, LLMFactory } from "../utils/factory";
 import { MemoryConfig } from "../types";
 import { BM25 } from "../utils/bm25";
 import { logger } from "../utils/logger";
+import { OpenAIStructuredLLM } from "../llms/openai_structured";
 
 interface Filters {
-  user_id: string;
   [key: string]: any;
 }
 
@@ -51,33 +51,36 @@ interface LLMResponse {
 }
 
 export const EXTRACT_ENTITIES_TOOL = {
-  name: "extract_entities",
-  description: "Extract entities and their types from the given text",
-  parameters: {
-    type: "object",
-    properties: {
-      entities: {
-        type: "array",
-        description: "List of entities found in the text",
-        items: {
-          type: "object",
-          properties: {
-            entity: {
-              type: "string",
-              description: "The entity name",
+  type: "function",
+  function: {
+    name: "extract_entities",
+    description: "Extract entities and their types from the given text",
+    parameters: {
+      type: "object",
+      properties: {
+        entities: {
+          type: "array",
+          description: "List of entities found in the text",
+          items: {
+            type: "object",
+            properties: {
+              entity: {
+                type: "string",
+                description: "The entity name",
+              },
+              entity_type: {
+                type: "string",
+                description:
+                  "The type of the entity (e.g., person, organization, location, etc.)",
+              },
             },
-            entity_type: {
-              type: "string",
-              description:
-                "The type of the entity (e.g., person, organization, location, etc.)",
-            },
+            required: ["entity", "entity_type"],
           },
-          required: ["entity", "entity_type"],
         },
       },
+      required: ["entities"],
     },
-    required: ["entities"],
-  },
+  }
 };
 
 export const EXTRACT_ENTITIES_STRUCT_TOOL = {
@@ -114,37 +117,40 @@ export const EXTRACT_ENTITIES_STRUCT_TOOL = {
 };
 
 export const RELATIONS_TOOL = {
-  name: "extract_relationships",
-  description: "Extract relationships between entities in the text",
-  parameters: {
-    type: "object",
-    properties: {
-      entities: {
-        type: "array",
-        description: "List of relationships between entities",
-        items: {
-          type: "object",
-          properties: {
-            source: {
-              type: "string",
-              description: "The source entity in the relationship",
+  type: "function",
+  function: {
+    name: "extract_relationships",
+    description: "Extract relationships between entities in the text",
+    parameters: {
+      type: "object",
+      properties: {
+        entities: {
+          type: "array",
+          description: "List of relationships between entities",
+          items: {
+            type: "object",
+            properties: {
+              source: {
+                type: "string",
+                description: "The source entity in the relationship",
+              },
+              relationship: {
+                type: "string",
+                description:
+                  "The type of relationship between source and destination",
+              },
+              destination: {
+                type: "string",
+                description: "The destination entity in the relationship",
+              },
             },
-            relationship: {
-              type: "string",
-              description:
-                "The type of relationship between source and destination",
-            },
-            destination: {
-              type: "string",
-              description: "The destination entity in the relationship",
-            },
+            required: ["source", "relationship", "destination"],
           },
-          required: ["source", "relationship", "destination"],
         },
       },
+      required: ["entities"],
     },
-    required: ["entities"],
-  },
+  }
 };
 
 export const RELATIONS_STRUCT_TOOL = {
@@ -185,26 +191,29 @@ export const RELATIONS_STRUCT_TOOL = {
 };
 
 export const DELETE_MEMORY_TOOL_GRAPH = {
-  name: "delete_graph_memory",
-  description: "Delete outdated or incorrect relationships from the graph",
-  parameters: {
-    type: "object",
-    properties: {
-      source: {
-        type: "string",
-        description: "The source entity of the relationship to delete",
+  type: "function",
+  function: {
+    name: "delete_graph_memory",
+    description: "Delete outdated or incorrect relationships from the graph",
+    parameters: {
+      type: "object",
+      properties: {
+        source: {
+          type: "string",
+          description: "The source entity of the relationship to delete",
+        },
+        relationship: {
+          type: "string",
+          description: "The type of relationship to delete",
+        },
+        destination: {
+          type: "string",
+          description: "The destination entity of the relationship to delete",
+        },
       },
-      relationship: {
-        type: "string",
-        description: "The type of relationship to delete",
-      },
-      destination: {
-        type: "string",
-        description: "The destination entity of the relationship to delete",
-      },
+      required: ["source", "relationship", "destination"],
     },
-    required: ["source", "relationship", "destination"],
-  },
+  }
 };
 
 export const DELETE_MEMORY_STRUCT_TOOL_GRAPH = {
@@ -263,7 +272,7 @@ export class MemoryGraph {
   private graph: Driver;
   private embeddingModel: any;
   private llmProvider: string;
-  private llm: any;
+  private llm: OpenAIStructuredLLM;
   private threshold: number = 0.7;
 
   constructor(config: MemoryConfig) {
@@ -297,7 +306,10 @@ export class MemoryGraph {
       this.llmProvider = this.config.graphStore.llm.provider;
     }
 
-    this.llm = LLMFactory.create(this.llmProvider, this.config.llm.config);
+    this.llm = new OpenAIStructuredLLM({
+      ...this.config.llm.config,
+      model: 'gpt-4.1-nano'
+    })
 
     this.setupMemgraph();
   }
@@ -343,11 +355,11 @@ export class MemoryGraph {
 
     const deletedEntities = await this.deleteEntities(
       toBeDeleted,
-      filters.user_id,
+      filters.userId,
     );
     const addedEntities = await this.addEntities(
       toBeAdded,
-      filters.user_id,
+      filters.userId,
       entityTypeMap,
     );
 
@@ -360,11 +372,11 @@ export class MemoryGraph {
       Object.keys(entityTypeMap),
       filters,
     );
-    
+
     if (!searchOutput.length) {
       return [];
     }
-    
+
     const searchOutputsSequence = searchOutput.map((item) => [
       item.source,
       item.relationship,
@@ -390,7 +402,7 @@ export class MemoryGraph {
     try {
       await session.run(
         `MATCH (n {user_id: $user_id}) DETACH DELETE n`,
-        { user_id: filters.user_id },
+        { user_id: filters.userId },
       );
     } finally {
       await session.close();
@@ -402,7 +414,7 @@ export class MemoryGraph {
     try {
       const result = await session.run(
         `MATCH (n:Entity {user_id: $user_id})-[r]->(m:Entity {user_id: $user_id}) RETURN n.name AS source, type(r) AS relationship, m.name AS target LIMIT toInteger($limit)`,
-        { user_id: filters.user_id, limit: Math.floor(Number(limit)) },
+        { user_id: filters.userId, limit: Math.floor(Number(limit)) },
       );
 
       const finalResults: SearchResult[] = result.records.map((record) => ({
@@ -424,34 +436,43 @@ export class MemoryGraph {
         ? [EXTRACT_ENTITIES_STRUCT_TOOL]
         : [EXTRACT_ENTITIES_TOOL];
 
-    const searchResults: LLMResponse = await this.llm.generateResponse({
-      messages: [
+    const searchResults = await this.llm.generateResponse(
+      [
         {
           role: "system",
-          content: `You are a smart assistant who understands entities and their types in a given text. If user message contains self reference such as 'I', 'me', 'my' etc. then use ${filters.user_id} as the source entity. Extract all the entities from the text. ***DO NOT*** answer the question itself if the given text is a question.`,
+          content: `You are a smart assistant who understands entities and their types in a given text. If user message contains self reference such as 'I', 'me', 'my' etc. then use ${filters.userId} as the source entity. Extract all the entities from the text. ***DO NOT*** answer the question itself if the given text is a question.`,
         },
         { role: "user", content: data },
       ],
-      tools,
-    });
+      { type: "json_object" },
+      tools
+    );
 
-    const entityTypeMap: EntityTypeMap = {};
+    let entityTypeMap: Record<string, string> = {};
     try {
-      for (const call of searchResults.tool_calls) {
-        if (call.name !== "extract_entities") continue;
-        for (const item of call.arguments.entities) {
-          entityTypeMap[item.entity] = item.entity_type;
+      if (typeof searchResults !== "string" && searchResults.toolCalls) {
+        for (const call of searchResults.toolCalls) {
+          if (call.name === "extract_entities") {
+            const args = JSON.parse(call.arguments);
+            for (const item of args.entities) {
+              entityTypeMap[item.entity] = item.entity_type;
+            }
+          }
         }
       }
-    } catch (_) {}
-
-    const normalizedMap: EntityTypeMap = {};
-    for (const [k, v] of Object.entries(entityTypeMap)) {
-      normalizedMap[k.toLowerCase().replace(/ /g, "_")] = v
-        .toLowerCase()
-        .replace(/ /g, "_");
+    } catch (e) {
+      logger.error(`Error in search tool: ${e}`);
     }
-    return normalizedMap;
+
+    entityTypeMap = Object.fromEntries(
+      Object.entries(entityTypeMap).map(([k, v]) => [
+        k.toLowerCase().replace(/ /g, "_"),
+        v.toLowerCase().replace(/ /g, "_"),
+      ]),
+    );
+
+    logger.debug(`Entity type map: ${JSON.stringify(entityTypeMap)}`);
+    return entityTypeMap;
   }
 
   private async establishNodesRelationsFromData(
@@ -464,7 +485,7 @@ export class MemoryGraph {
       messages = [
         {
           role: "system",
-          content: EXTRACT_RELATIONS_PROMPT.replace("USER_ID", filters.user_id).replace(
+          content: EXTRACT_RELATIONS_PROMPT.replace("USER_ID", filters.userId).replace(
             "CUSTOM_PROMPT",
             `4. ${this.config.graphStore.customPrompt}`,
           ),
@@ -475,7 +496,7 @@ export class MemoryGraph {
       messages = [
         {
           role: "system",
-          content: EXTRACT_RELATIONS_PROMPT.replace("USER_ID", filters.user_id),
+          content: EXTRACT_RELATIONS_PROMPT.replace("USER_ID", filters.userId),
         },
         {
           role: "user",
@@ -489,17 +510,23 @@ export class MemoryGraph {
         ? [RELATIONS_STRUCT_TOOL]
         : [RELATIONS_TOOL];
 
-    const extractedEntities: LLMResponse = await this.llm.generateResponse({
+    const extractedEntities = await this.llm.generateResponse(
       messages,
+      { type: "json_object" },
       tools,
-    });
+    );
 
-    let entities: Entity[] = [];
-    if (extractedEntities.tool_calls.length) {
-      entities = extractedEntities.tool_calls[0].arguments.entities;
+    let entities: any[] = [];
+    if (typeof extractedEntities !== "string" && extractedEntities.toolCalls) {
+      const toolCall = extractedEntities.toolCalls[0];
+      if (toolCall && toolCall.arguments) {
+        const args = JSON.parse(toolCall.arguments);
+        entities = args.entities || [];
+      }
     }
 
     entities = this.removeSpacesFromEntities(entities);
+    logger.debug(`Extracted entities: ${JSON.stringify(entities)}`);
     return entities;
   }
 
@@ -538,7 +565,7 @@ export class MemoryGraph {
         const result = await session.run(cypherQuery, {
           n_embedding: nEmbedding,
           threshold: this.threshold,
-          user_id: filters.user_id,
+          user_id: filters.userId,
           limit: Math.floor(Number(limit)),
         });
 
@@ -569,7 +596,7 @@ export class MemoryGraph {
     const [systemPrompt, userPrompt] = getDeleteMessages(
       searchOutputString,
       data,
-      filters.user_id,
+      filters.userId,
     );
 
     const tools =
@@ -577,22 +604,29 @@ export class MemoryGraph {
         ? [DELETE_MEMORY_STRUCT_TOOL_GRAPH]
         : [DELETE_MEMORY_TOOL_GRAPH];
 
-    const memoryUpdates: LLMResponse = await this.llm.generateResponse({
-      messages: [
+    const memoryUpdates = await this.llm.generateResponse(
+      [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
+      { type: "json_object" },
       tools,
-    });
+    );
 
-    const toBeDeleted: Entity[] = [];
-    for (const item of memoryUpdates.tool_calls) {
-      if (item.name === "delete_graph_memory") {
-        toBeDeleted.push(item.arguments);
+    const toBeDeleted: any[] = [];
+    if (typeof memoryUpdates !== "string" && memoryUpdates.toolCalls) {
+      for (const item of memoryUpdates.toolCalls) {
+        if (item.name === "delete_graph_memory") {
+          toBeDeleted.push(JSON.parse(item.arguments));
+        }
       }
     }
 
-    return this.removeSpacesFromEntities(toBeDeleted);
+    const cleanedToBeDeleted = this.removeSpacesFromEntities(toBeDeleted);
+    logger.debug(
+      `Deleted relationships: ${JSON.stringify(cleanedToBeDeleted)}`,
+    );
+    return cleanedToBeDeleted;
   }
 
   private async deleteEntities(
