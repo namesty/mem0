@@ -1,10 +1,8 @@
 import neo4j, { Driver } from "neo4j-driver";
 import { EmbedderFactory, LLMFactory } from "../utils/factory";
 import { MemoryConfig } from "../types";
-
-const BM25Vectorizer = require("wink-nlp/utilities/bm25-vectorizer");
-const model = require("wink-eng-lite-web-model");
-const nlp = require("wink-nlp")(model);
+import { BM25 } from "../utils/bm25";
+import { logger } from "../utils/logger";
 
 interface Filters {
   user_id: string;
@@ -362,38 +360,28 @@ export class MemoryGraph {
       Object.keys(entityTypeMap),
       filters,
     );
-
+    
     if (!searchOutput.length) {
       return [];
     }
+    
+    const searchOutputsSequence = searchOutput.map((item) => [
+      item.source,
+      item.relationship,
+      item.destination,
+    ]);
 
-    const documents = searchOutput.map(
-      (item) => `${item.source} ${item.relationship} ${item.destination}`,
-    );
+    const bm25 = new BM25(searchOutputsSequence);
+    const tokenizedQuery = query.split(" ");
+    const rerankedResults = bm25.search(tokenizedQuery).slice(0, 5);
 
-    const bm25 = BM25Vectorizer();
-    documents.forEach((doc: string) => {
-      bm25.learn(nlp.readDoc(doc).tokens().out());
-    });
-    bm25.consolidate();
-
-    const queryTokens = nlp.readDoc(query).tokens().out();
-    const scores = documents.map((_, index) => ({
-      index,
-      score: bm25.scoreOf(queryTokens, index),
+    const searchResults = rerankedResults.map((item) => ({
+      source: item[0],
+      relationship: item[1],
+      destination: item[2],
     }));
 
-    const topResults = scores
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 5)
-      .map((r) => searchOutput[r.index]);
-
-    const searchResults: SearchResult[] = topResults.map((item) => ({
-      source: item.source,
-      relationship: item.relationship,
-      destination: item.destination,
-    }));
-
+    logger.info(`Returned ${searchResults.length} search results`);
     return searchResults;
   }
 
