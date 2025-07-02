@@ -39,7 +39,8 @@ export class AnthropicLLM implements LLM {
       max_tokens: 4096,
     });
 
-    return response.content[0].text;
+    // @ts-ignore
+    return response.content[0].text; 
   }
 
   async generateChat(messages: Message[]): Promise<LLMResponse> {

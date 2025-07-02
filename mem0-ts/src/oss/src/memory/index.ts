@@ -25,12 +25,14 @@ import { Embedder } from "../embeddings/base";
 import { LLM } from "../llms/base";
 import { VectorStore } from "../vector_stores/base";
 import { ConfigManager } from "../config/manager";
-import { MemoryGraph } from "./graph_memory";
+import { MemoryGraph as Neo4jMemoryGraph } from "./graph_memory";
+import { MemoryGraph as MemgraphMemoryGraph } from "./memgraph";
 import {
   AddMemoryOptions,
   SearchMemoryOptions,
   DeleteAllMemoryOptions,
   GetAllMemoryOptions,
+  IMemoryGraph,
 } from "./memory.types";
 import { parse_vision_messages } from "../utils/memory";
 import { HistoryManager } from "../storage/base";
@@ -45,7 +47,7 @@ export class Memory {
   private db: HistoryManager;
   private collectionName: string | undefined;
   private apiVersion: string;
-  private graphMemory?: MemoryGraph;
+  private graphMemory?: IMemoryGraph;
   private enableGraph: boolean;
   telemetryId: string;
 
@@ -92,7 +94,11 @@ export class Memory {
 
     // Initialize graph memory if configured
     if (this.enableGraph && this.config.graphStore) {
-      this.graphMemory = new MemoryGraph(this.config);
+      this.graphMemory = this.config.graphStore.provider === 'memgraph' ?
+      new MemgraphMemoryGraph({
+        ...this.config,
+        graphStore: this.config.graphStore!
+      }) : new Neo4jMemoryGraph(this.config);
     }
 
     // Initialize telemetry if vector store is initialized
